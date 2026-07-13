@@ -1,0 +1,433 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Token Rate Limit System</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: system-ui, sans-serif; background: #f0f2f5; color: #1e293b; }
+
+  header { background: #1e293b; color: #fff; padding: 1rem 2rem; }
+  header h1 { font-size: 1.3rem; }
+  header p  { font-size: 0.8rem; opacity: 0.6; margin-top: 0.2rem; }
+
+  nav { display: flex; background: #fff; border-bottom: 2px solid #e2e8f0; padding: 0 2rem; }
+  nav button {
+    padding: 0.9rem 1.4rem; border: none; background: none; cursor: pointer;
+    font-size: 0.9rem; color: #64748b; border-bottom: 3px solid transparent; margin-bottom: -2px;
+  }
+  nav button.active { color: #4a6cf7; border-bottom-color: #4a6cf7; font-weight: 600; }
+
+  main  { max-width: 1000px; margin: 1.25rem auto; padding: 0 1rem; }
+  .tab  { display: none; }
+  .tab.active { display: block; }
+
+  .card { background: #fff; border-radius: 8px; padding: 1.25rem; margin-bottom: 1.25rem; box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+  .card h2 { font-size: 1rem; margin-bottom: .25rem; }
+  .card .sub { font-size: 0.78rem; color: #64748b; margin-bottom: 1rem; }
+
+  .row  { display: flex; gap: .6rem; align-items: center; margin-bottom: .6rem; flex-wrap: wrap; }
+  .row label { font-size: 0.82rem; color: #64748b; min-width: 130px; }
+
+  input[type=text], input[type=number], select {
+    border: 1px solid #e2e8f0; border-radius: 6px; padding: .45rem .75rem; font-size: 0.88rem; outline: none;
+  }
+  input:focus, select:focus { border-color: #4a6cf7; }
+  input[type=text] { min-width: 200px; } input[type=number] { width: 130px; } select { min-width: 190px; }
+
+  .btn { border: none; border-radius: 6px; padding: .45rem 1.1rem; cursor: pointer; font-size: 0.88rem; color: #fff; }
+  .btn-blue { background: #4a6cf7; } .btn-blue:hover { background: #3b5de7; }
+  .btn-gray { background: #64748b; } .btn-gray:hover { background: #475569; }
+  .btn-sm { padding: .25rem .65rem; font-size: 0.8rem; }
+
+  .badge { display:inline-block; padding:.15rem .55rem; border-radius:999px; font-size:0.72rem; font-weight:600; }
+  .badge-g { background:#dcfce7; color:#166534; } .badge-r { background:#fee2e2; color:#991b1b; }
+
+  table { width: 100%; border-collapse: collapse; font-size: 0.82rem; margin-top: .6rem; }
+  th { text-align:left; padding:.4rem .7rem; background:#f8fafc; color:#64748b; font-weight:600; border-bottom:2px solid #e2e8f0; }
+  td { padding:.4rem .7rem; border-bottom:1px solid #f1f5f9; }
+  .table-wrap { overflow-x:auto; }
+
+  /* ---- Chat tab ---- */
+  .chat-layout { display: grid; grid-template-columns: 220px 1fr; gap: 1rem; }
+  .chat-side { background:#fff; border-radius:8px; padding:1rem; box-shadow:0 1px 3px rgba(0,0,0,.08); height: fit-content; }
+  .chat-main { background:#fff; border-radius:8px; box-shadow:0 1px 3px rgba(0,0,0,.08); display:flex; flex-direction:column; height: 560px; }
+  .chat-msgs { flex:1; overflow-y:auto; padding:1rem; display:flex; flex-direction:column; gap:.75rem; }
+  .bubble { max-width:75%; padding:.6rem .85rem; border-radius:12px; font-size:0.86rem; line-height:1.4; }
+  .bubble.user { align-self:flex-end; background:#4a6cf7; color:#fff; border-bottom-right-radius:3px; }
+  .bubble.bot  { align-self:flex-start; background:#f1f5f9; color:#1e293b; border-bottom-left-radius:3px; }
+  .bubble .meta { font-size:0.7rem; margin-top:.35rem; opacity:.75; }
+  .chat-input { display:flex; gap:.5rem; padding:.75rem; border-top:1px solid #e2e8f0; }
+  .chat-input input[type=text] { flex:1; }
+
+  /* ---- Procedure tab ---- */
+  .proc-layout { display:grid; grid-template-columns: 280px 1fr; gap:1rem; }
+  .proc-list { background:#fff; border-radius:8px; padding:.75rem; box-shadow:0 1px 3px rgba(0,0,0,.08); height:600px; overflow-y:auto; }
+  .proc-group { font-size:0.72rem; text-transform:uppercase; color:#94a3b8; font-weight:700; margin:.75rem .5rem .3rem; letter-spacing:.5px; }
+  .proc-item { padding:.4rem .6rem; border-radius:6px; cursor:pointer; font-size:0.8rem; font-family:monospace; color:#334155; }
+  .proc-item:hover { background:#f1f5f9; }
+  .proc-item.active { background:#e0e7ff; color:#3730a3; font-weight:600; }
+  .proc-panel { background:#fff; border-radius:8px; padding:1.25rem; box-shadow:0 1px 3px rgba(0,0,0,.08); }
+  .proc-sig { font-family:monospace; font-size:0.9rem; background:#f8fafc; padding:.6rem .8rem; border-radius:6px; margin-bottom:1rem; color:#3730a3; word-break:break-all; }
+
+  .output { margin-top:1rem; background:#0f172a; color:#e2e8f0; border-radius:6px; padding:1rem; font-family:monospace; font-size:0.8rem; overflow-x:auto; }
+  .output .ok  { color:#4ade80; } .output .err { color:#f87171; }
+  .output table { margin-top:.3rem; } .output th { background:#1e293b; color:#94a3b8; border-color:#334155; }
+  .output td { border-color:#1e293b; color:#e2e8f0; }
+
+  .muted { color:#94a3b8; font-size:0.82rem; }
+
+  /* ---- Admin log scroll area ---- */
+  .log-scroll { max-height: 520px; overflow-y: auto; overflow-x: auto; border: 1px solid #e2e8f0; border-radius: 6px; }
+  .log-scroll th { position: sticky; top: 0; z-index: 1; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Token Rate Limit System</h1>
+</header>
+
+<nav>
+  <button class="active" onclick="tab('chat',this)">💬 Chat</button>
+  <button onclick="tab('procs',this)">⚙️ Procedures</button>
+  <button onclick="tab('user',this)">👤 User Dashboard</button>
+  <button onclick="tab('admin',this)">🛡️ Admin Dashboard</button>
+</nav>
+
+<main>
+
+<!-- ================= TAB 1: CHAT ================= -->
+<div id="tab-chat" class="tab active">
+  <div class="chat-layout">
+    <div class="chat-side">
+      <div class="proc-group">Select User</div>
+      <select id="chat-user" style="width:100%" onchange="loadChat()"></select>
+      <div style="margin-top:1rem;">
+        <label style="font-size:0.8rem;display:flex;gap:.4rem;align-items:center;cursor:pointer">
+          <input type="checkbox" id="chat-budget" style="width:15px;height:15px">
+          Allow budget override
+        </label>
+      </div>
+      <p class="muted" style="margin-top:1rem;line-height:1.4">
+        Each message passes through <b>validate → LLM → record_usage</b> before you see a reply.
+      </p>
+    </div>
+
+    <div class="chat-main">
+      <div class="chat-msgs" id="chat-msgs">
+        <p class="muted" style="margin:auto">Select a user to load their chat.</p>
+      </div>
+      <div class="chat-input">
+        <input type="text" id="chat-text" placeholder="Type a message..." onkeydown="if(event.key==='Enter')sendChat()">
+        <button class="btn btn-blue" onclick="sendChat()">Send</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ================= TAB 2: PROCEDURES ================= -->
+<div id="tab-procs" class="tab">
+  <div class="proc-layout">
+    <div class="proc-list" id="proc-list"></div>
+    <div class="proc-panel" id="proc-panel">
+      <p class="muted">Select a procedure on the left to run it.</p>
+    </div>
+  </div>
+</div>
+
+<!-- ================= TAB 3: USER DASHBOARD ================= -->
+<div id="tab-user" class="tab">
+  <div class="card">
+    <h2>User Dashboard</h2>
+    <p class="sub">Live limits, usage and query history for one user.</p>
+    <div class="row">
+      <label>Select user</label>
+      <select id="dash-user" onchange="loadUserDash()"></select>
+    </div>
+  </div>
+  <div id="dash-content"></div>
+</div>
+
+<!-- ================= TAB 4: ADMIN DASHBOARD ================= -->
+<div id="tab-admin" class="tab">
+  <div class="card">
+    <h2>Backend Request Logs</h2>
+    <p class="sub">Every HTTP request with its status, latency and backend trace (from request_log).</p>
+    <button class="btn btn-gray" onclick="loadAdmin()">Refresh</button>
+    <div id="admin-content"></div>
+  </div>
+</div>
+
+</main>
+
+<script>
+// ============ helpers ============
+async function api(method, path, body) {
+  const opts = { method, headers: { 'Content-Type': 'application/json' } };
+  if (body) opts.body = JSON.stringify(body);
+  const r = await fetch(path, opts);
+  const data = await r.json();
+  if (!r.ok) throw new Error(data.detail || JSON.stringify(data));
+  return data;
+}
+function fmt(n) { return (n ?? 0).toLocaleString(); }
+function esc(s) { return String(s ?? '').replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
+
+function tab(name, btn) {
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('nav button').forEach(b => b.classList.remove('active'));
+  document.getElementById('tab-' + name).classList.add('active');
+  if (btn) btn.classList.add('active');
+  if (name === 'chat')  fillUsers('chat-user').then(loadChat);
+  if (name === 'procs') renderProcList();
+  if (name === 'user')  fillUsers('dash-user').then(loadUserDash);
+  if (name === 'admin') loadAdmin();
+}
+
+async function fillUsers(selId) {
+  try {
+    const users = await api('GET', '/users');
+    const sel = document.getElementById(selId);
+    const prev = sel.value;
+    sel.innerHTML = users.filter(u => u.is_active)
+      .map(u => `<option value="${u.user_id}">${esc(u.user_name)} (id ${u.user_id})</option>`).join('');
+    if (prev) sel.value = prev;
+  } catch(_) {}
+}
+
+// ============ TAB 1: CHAT ============
+async function loadChat() {
+  const uid = document.getElementById('chat-user').value;
+  const box = document.getElementById('chat-msgs');
+  if (!uid) return;
+  try {
+    const hist = await api('GET', `/users/${uid}/chat-history`);
+    box.innerHTML = '';
+    // oldest first
+    hist.reverse().forEach(h => {
+      addBubble('user', h.user_message, null);
+      addBubble('bot', h.llm_response,
+        `${h.query_status} · ${fmt(h.tokens_used)} tokens`);
+    });
+    if (!hist.length) box.innerHTML = '<p class="muted" style="margin:auto">No messages yet. Say hello!</p>';
+    box.scrollTop = box.scrollHeight;
+  } catch(e) {
+    box.innerHTML = `<p class="muted" style="margin:auto;color:#ef4444">${esc(e.message)}</p>`;
+  }
+}
+
+function addBubble(kind, text, meta) {
+  const box = document.getElementById('chat-msgs');
+  const empty = box.querySelector('.muted'); if (empty) empty.remove();
+  const div = document.createElement('div');
+  div.className = 'bubble ' + kind;
+  div.innerHTML = esc(text) + (meta ? `<div class="meta">${esc(meta)}</div>` : '');
+  box.appendChild(div);
+  box.scrollTop = box.scrollHeight;
+}
+
+async function sendChat() {
+  const uid = parseInt(document.getElementById('chat-user').value);
+  const input = document.getElementById('chat-text');
+  const text = input.value.trim();
+  const allow_budget = document.getElementById('chat-budget').checked;
+  if (!uid || !text) return;
+  addBubble('user', text, null);
+  input.value = '';
+  try {
+    const d = await api('POST', '/query', { user_id: uid, prompt: text, allow_budget });
+    if (d.status === 'success') {
+      addBubble('bot', d.response, `${d.record} · ${fmt(d.tokens_used)} tokens`);
+    } else {
+      addBubble('bot', `🚫 Blocked: ${d.validate}${d.record ? ' / ' + d.record : ''}`, null);
+    }
+  } catch(e) {
+    addBubble('bot', `⚠️ ${e.message}`, null);
+  }
+}
+
+// ============ TAB 2: PROCEDURES ============
+// Each proc: name, params [{name,type}], has_out (last param is OUT)
+const PROCS = {
+  'Plans': [
+    { name:'sp_create_plan', params:[['p_name','text'],['p_hourly','number'],['p_daily','number'],['p_monthly','number']] },
+    { name:'sp_update_plan', params:[['p_plan_id','number'],['p_hourly','number'],['p_daily','number'],['p_monthly','number']], has_out:true },
+    { name:'sp_soft_delete_plan', params:[['p_plan_id','number']] },
+    { name:'sp_delete_plan', params:[['p_plan_id','number']] },
+    { name:'sp_migrate_users_to_plan', params:[['p_old_plan','number'],['p_new_plan','number']] },
+    { name:'sp_get_all_plan', params:[] },
+    { name:'sp_get_plan_details', params:[['p_id','number']] },
+  ],
+  'Users': [
+    { name:'sp_create_user', params:[['p_user_name','text'],['p_plan_id','number'],['p_budget','number']] },
+    { name:'sp_update_user', params:[['p_user_id','number'],['p_user_name','text'],['p_plan_id','number'],['p_budget','number']] },
+    { name:'sp_add_budget', params:[['p_user_id','number'],['additional_tokens','number']] },
+    { name:'sp_delete_user', params:[['p_user_id','number']] },
+    { name:'sp_get_user_details', params:[['p_user_id','number']] },
+    { name:'sp_list_users', params:[] },
+    { name:'sp_get_remaining_limits', params:[['p_user_id','number']] },
+  ],
+  'Usage': [
+    { name:'sp_refresh_usage', params:[['p_user_id','number']] },
+    { name:'sp_get_current_usage', params:[['p_user_id','number']] },
+    { name:'sp_get_all_usage', params:[] },
+  ],
+  'Validation & Logging': [
+    { name:'sp_validate_request', params:[['p_user_id','number'],['p_allow_budget','number']], has_out:true },
+    { name:'sp_record_usage', params:[['p_user_id','number'],['p_tokens','number'],['p_allow_budget','number']], has_out:true },
+    { name:'sp_log_query', params:[['p_user_id','number'],['p_plan_id','number'],['p_status','text'],['p_tokens','number']] },
+    { name:'sp_get_query_history', params:[['p_user_id','number']] },
+  ],
+};
+
+function renderProcList() {
+  const el = document.getElementById('proc-list');
+  if (el.dataset.done) return;
+  let html = '';
+  for (const [group, procs] of Object.entries(PROCS)) {
+    html += `<div class="proc-group">${group}</div>`;
+    procs.forEach(p => {
+      html += `<div class="proc-item" onclick="selectProc('${p.name}',this)">${p.name}</div>`;
+    });
+  }
+  el.innerHTML = html;
+  el.dataset.done = '1';
+}
+
+function findProc(name) {
+  for (const procs of Object.values(PROCS))
+    for (const p of procs) if (p.name === name) return p;
+}
+
+function selectProc(name, item) {
+  document.querySelectorAll('.proc-item').forEach(i => i.classList.remove('active'));
+  if (item) item.classList.add('active');
+  const p = findProc(name);
+  const sig = `${name}(${p.params.map(x => x[0]).join(', ')}${p.has_out ? ', OUT @msg' : ''})`;
+
+  let inputs = p.params.map(([pn, ptype]) =>
+    `<div class="row">
+       <label>${pn}</label>
+       <input type="${ptype}" id="parg-${pn}" placeholder="${ptype}">
+     </div>`).join('');
+  if (!p.params.length) inputs = '<p class="muted">No parameters.</p>';
+
+  document.getElementById('proc-panel').innerHTML = `
+    <div class="proc-sig">CALL ${sig};</div>
+    ${inputs}
+    <button class="btn btn-blue" onclick="runProc('${name}')">▶ CALL</button>
+    <div id="proc-output"></div>`;
+}
+
+async function runProc(name) {
+  const p = findProc(name);
+  const params = p.params.map(([pn, ptype]) => {
+    const v = document.getElementById('parg-' + pn).value;
+    return ptype === 'number' ? (v === '' ? null : Number(v)) : v;
+  });
+  const out = document.getElementById('proc-output');
+  out.innerHTML = '<div class="output muted">Running...</div>';
+  try {
+    const d = await api('POST', '/admin/call-procedure', { proc_name: name, params, has_out: !!p.has_out });
+    out.innerHTML = renderProcResult(d);
+  } catch(e) {
+    out.innerHTML = `<div class="output"><span class="err">ERROR: ${esc(e.message)}</span></div>`;
+  }
+}
+
+function renderProcResult(d) {
+  if (d.type === 'out')
+    return `<div class="output"><span class="ok">OUT @msg =</span> ${esc(d.out_value)}</div>`;
+  if (d.type === 'action')
+    return `<div class="output"><span class="ok">${esc(d.message)}</span></div>`;
+  if (d.type === 'rows') {
+    if (!d.rows.length) return `<div class="output muted">Empty set (0 rows).</div>`;
+    const cols = Object.keys(d.rows[0]);
+    return `<div class="output"><div class="table-wrap"><table>
+      <thead><tr>${cols.map(c => `<th>${esc(c)}</th>`).join('')}</tr></thead>
+      <tbody>${d.rows.map(r => `<tr>${cols.map(c => `<td>${esc(r[c])}</td>`).join('')}</tr>`).join('')}</tbody>
+      </table></div><div class="muted" style="margin-top:.5rem">${d.row_count} row(s)</div></div>`;
+  }
+  return `<div class="output">${esc(JSON.stringify(d))}</div>`;
+}
+
+// ============ TAB 3: USER DASHBOARD ============
+async function loadUserDash() {
+  const uid = document.getElementById('dash-user').value;
+  const el = document.getElementById('dash-content');
+  if (!uid) return;
+  try {
+    const [lim, usage, hist] = await Promise.all([
+      api('GET', `/users/${uid}/limits`),
+      api('GET', `/users/${uid}/usage`),
+      api('GET', `/users/${uid}/history`),
+    ]);
+    el.innerHTML = `
+      <div class="card">
+        <h2>Remaining Limits</h2>
+        <div class="table-wrap"><table>
+          <tr><th>Budget</th><th>Hourly left</th><th>Daily left</th><th>Monthly left</th></tr>
+          <tr><td>${fmt(lim.remaining_budget)}</td><td>${fmt(lim.hourly_remaining)}</td>
+              <td>${fmt(lim.daily_remaining)}</td><td>${fmt(lim.monthly_remaining)}</td></tr>
+        </table></div>
+      </div>
+      <div class="card">
+        <h2>Current Usage Counters</h2>
+        <div class="table-wrap"><table>
+          <tr><th>Hourly</th><th>Daily</th><th>Monthly</th></tr>
+          <tr><td>${fmt(usage.hourly_token)}</td><td>${fmt(usage.daily_token)}</td><td>${fmt(usage.monthly_token)}</td></tr>
+        </table></div>
+      </div>
+      <div class="card">
+        <h2>Query History (${hist.length})</h2>
+        <div class="table-wrap"><table>
+          <thead><tr><th>#</th><th>Time</th><th>Status</th><th>Tokens</th></tr></thead>
+          <tbody>${hist.map(r => `<tr>
+            <td>${r.q_id}</td><td>${esc(r.time_stamp)}</td>
+            <td><span class="badge ${r.query_status==='success'?'badge-g':'badge-r'}">${esc(r.query_status)}</span></td>
+            <td>${fmt(r.tokens_used)}</td></tr>`).join('')}</tbody>
+        </table></div>
+      </div>`;
+  } catch(e) {
+    el.innerHTML = `<div class="card"><p style="color:#ef4444">${esc(e.message)}</p></div>`;
+  }
+}
+
+// ============ TAB 4: ADMIN DASHBOARD ============
+async function loadAdmin() {
+  const el = document.getElementById('admin-content');
+  try {
+    const logs = await api('GET', '/admin/request-logs');   // no limit = all logs
+    if (!logs.length) { el.innerHTML = '<p class="muted" style="margin-top:1rem">No requests logged yet.</p>'; return; }
+    el.innerHTML = `
+      <p class="muted" style="margin:.75rem 0">${logs.length} request(s) logged — scroll to see all.</p>
+      <div class="log-scroll"><table>
+      <thead><tr><th>Time</th><th>Method</th><th>Endpoint</th><th>Status</th><th>ms</th><th>Trace</th></tr></thead>
+      <tbody>${logs.map(l => `<tr>
+        <td>${esc(l.timestamp)}</td>
+        <td><b>${esc(l.http_method)}</b></td>
+        <td>${esc(l.endpoint)}</td>
+        <td><span class="badge ${l.response_status_code<400?'badge-g':'badge-r'}">${l.response_status_code}</span></td>
+        <td>${l.execution_time_ms}</td>
+        <td>${traceBtn(l.backend_trace)}</td>
+      </tr>`).join('')}</tbody></table></div>`;
+  } catch(e) {
+    el.innerHTML = `<p style="color:#ef4444;margin-top:1rem">${esc(e.message)}</p>`;
+  }
+}
+
+function traceBtn(traceJson) {
+  if (!traceJson) return '<span class="muted">—</span>';
+  let arr; try { arr = JSON.parse(traceJson); } catch { return '<span class="muted">—</span>'; }
+  if (!arr.length) return '<span class="muted">—</span>';
+  const id = 'tr' + Math.random().toString(36).slice(2, 8);
+  const body = arr.map(t => `[${esc(t.level)}] ${esc(t.message)}`).join('\n');
+  return `<button class="btn btn-gray btn-sm" onclick="alert(${JSON.stringify(body).replace(/"/g,'&quot;')})">${arr.length} steps</button>`;
+}
+
+// initial
+fillUsers('chat-user').then(loadChat);
+</script>
+</body>
+</html>
