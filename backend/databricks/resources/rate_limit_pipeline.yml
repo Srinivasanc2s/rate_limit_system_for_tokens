@@ -1,0 +1,11 @@
+resources:
+  pipelines:
+    ldp_rate_limit:
+      name: ldp_rate_limit
+      catalog: rate_limit_system
+      target: silver
+      serverless: true
+      libraries:
+        - file:
+            path: ../src/pipelines/ldp_rate_limit.py
+

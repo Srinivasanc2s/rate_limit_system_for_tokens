@@ -66,8 +66,6 @@ CREATE TABLE users_usage (
 
 -- CREATE INDEX idx_users_plan
 -- ON users(plan_id);
-
-
 -- -----------------------------------------------------------------------
 -- plans procedures
 -- 1 a) -- sp_create_plan
@@ -119,7 +117,7 @@ BEGIN
 END $$
 DELIMITER ;
 -- ----------------------------------------------------------------------
--- 1 c) -- sp_delete_plan
+-- 1 c) -- sp_soft_delete_plan
 DROP PROCEDURE IF EXISTS sp_soft_delete_plan;
 DELIMITER $$
 CREATE PROCEDURE sp_soft_delete_plan(IN p_plan_id INT)
@@ -589,6 +587,11 @@ END $$
 DELIMITER ;
 -- -------------------------------------------------------------------------
 -- Test cases
+SELECT * FROM users;
+select * from users_usage;
+select * from plans;
+SELECT * FROM query_log;
+SELECT * FROM request_log;
 -- Insert plans
 -- 1) valid plans
 CALL sp_create_plan('Basic',1000,25000,100000); -- valid plan
@@ -639,11 +642,13 @@ CALL sp_delete_user(2);
 -- 13) sp_get_user_details
 CALL sp_get_user_details(2);
 CALL sp_get_user_details(3);
+CALL sp_get_user_details(1);
 -- 14) sp_list_users
 CALL sp_list_users();
 -- 15) sp_get_remaining_limits
 CALL sp_get_remaining_limits(2);
 CALL sp_get_remaining_limits(3);
+CALL sp_get_remaining_limits(1);
 -- 16) midgrate users to plan
 CALL sp_migrate_users_to_plan(1,2);
 CALL sp_list_users();
@@ -682,3 +687,271 @@ SELECT @msg;
 -- CALL sp_record_usage( 1,999999,TRUE,@msg);
 CALL sp_get_all_usage();
 CALL sp_get_query_history(1);
+-- ------------------------------------------------------
+-- VERSION 2
+-- ------------------------------------------------------
+
+-- Add new columns to query_log for chat messages
+ALTER TABLE query_log ADD COLUMN (
+    conversation_id VARCHAR(100),
+    user_message VARCHAR(1000),
+    llm_response VARCHAR(3000),
+    message_type ENUM('llm_query', 'validation_check', 'budget_check', 'procedure_exec') DEFAULT 'llm_query',
+    allow_budget_override BOOLEAN DEFAULT FALSE,
+    validation_result VARCHAR(100),
+    tokens_estimated INT,
+    execution_time_ms INT,
+    is_successful BOOLEAN DEFAULT TRUE
+);
+
+	
+-- Add index for fast chat retrieval
+CREATE INDEX idx_chat_history ON query_log(user_id, conversation_id, time_stamp);
+
+SHOW COLUMNS FROM query_log;
+
+-- CREATE TABLE request log for the tracing and logging backend
+CREATE TABLE request_log (
+    log_id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    
+    request_id VARCHAR(100) UNIQUE,
+    user_id INT,
+    http_method VARCHAR(10),
+    endpoint VARCHAR(300),
+    
+    request_params JSON,
+    query_string VARCHAR(500),
+    
+    response_status_code INT,
+    response_message VARCHAR(500),
+    response_data_size_bytes INT,
+    
+    backend_trace JSON,
+    
+    execution_time_ms INT,
+    db_time_ms INT,
+    
+    client_ip VARCHAR(45),
+    user_agent VARCHAR(300),
+    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+    
+    INDEX idx_user_time (user_id, timestamp),
+    INDEX idx_status_code (response_status_code),
+    INDEX idx_endpoint (endpoint),
+    INDEX idx_request_id (request_id),
+    INDEX idx_timestamp (timestamp)
+);
+
+ALTER TABLE request_log 
+DROP column user_agent, 
+DROP COLUMN db_time_ms ,
+DROP COLUMN query_string,
+DROP COLUMN response_data_size_bytes;
+
+DESCRIBE query_log;  -- Should show the 9 new columns
+DESCRIBE request_log;  -- Should show all logging columns
+SHOW INDEX FROM query_log;  -- Should see idx_chat_history
+SELECT * FROM request_log;
+SELECT * FROM query_log;
+SELECT @@port;
+SELECT @@hostname;
+SELECT VERSION();
+
+
+-- 5 b) sp_log_request
+DROP PROCEDURE IF EXISTS sp_log_request;
+DELIMITER $$
+
+CREATE PROCEDURE sp_log_request(
+    IN p_request_id VARCHAR(100),
+    IN p_user_id INT,
+    IN p_http_method VARCHAR(10),
+    IN p_endpoint VARCHAR(300),
+    IN p_request_params JSON,
+    IN p_response_status_code INT,
+    IN p_response_message VARCHAR(500),
+    IN p_backend_trace JSON,
+    IN p_execution_time_ms INT,
+    IN p_client_ip VARCHAR(45)
+)
+BEGIN
+
+    INSERT INTO request_log(
+        request_id,
+        user_id,
+        http_method,
+        endpoint,
+        request_params,
+        response_status_code,
+        response_message,
+        backend_trace,
+        execution_time_ms,
+        client_ip
+    )
+    VALUES(
+        p_request_id,
+        p_user_id,
+        p_http_method,
+        p_endpoint,
+        p_request_params,
+        p_response_status_code,
+        p_response_message,
+        p_backend_trace,
+        p_execution_time_ms,
+        p_client_ip
+    );
+
+END$$
+DELIMITER ;
+
+-- 5c) sp_log_query_v2
+DROP PROCEDURE IF EXISTS sp_log_query_v2;
+DELIMITER $$
+
+CREATE PROCEDURE sp_log_query_v2(
+    IN p_user_id INT,
+    IN p_plan_id INT,
+    IN p_query_status VARCHAR(20),
+    IN p_tokens_used INT,
+
+    IN p_conversation_id VARCHAR(100),
+    IN p_user_message VARCHAR(1000),
+    IN p_llm_response VARCHAR(3000),
+
+    IN p_message_type VARCHAR(30),
+
+    IN p_allow_budget_override BOOLEAN,
+    IN p_validation_result VARCHAR(100),
+
+    IN p_execution_time_ms INT,
+
+    IN p_is_successful BOOLEAN
+)
+BEGIN
+
+    INSERT INTO query_log(
+
+        user_id,
+        plan_id,
+        query_status,
+        tokens_used,
+
+        conversation_id,
+        user_message,
+        llm_response,
+        message_type,
+
+        allow_budget_override,
+        validation_result,
+
+        execution_time_ms,
+        is_successful
+
+    )
+    VALUES(
+
+        p_user_id,
+        p_plan_id,
+        p_query_status,
+        p_tokens_used,
+
+        p_conversation_id,
+        p_user_message,
+        p_llm_response,
+        p_message_type,
+
+        p_allow_budget_override,
+        p_validation_result,
+
+        p_execution_time_ms,
+        p_is_successful
+
+    );
+
+END$$
+DELIMITER ;
+
+-- 5d) sp_get_chat_history
+ 
+ DROP PROCEDURE IF EXISTS sp_get_chat_history;
+DELIMITER $$
+
+CREATE PROCEDURE sp_get_chat_history(
+    IN p_user_id INT
+)
+BEGIN
+
+    SELECT
+
+        q_id,
+        conversation_id,
+        user_message,
+        llm_response,
+        tokens_used,
+        validation_result,
+        query_status,
+        time_stamp
+
+    FROM query_log
+
+    WHERE user_id = p_user_id
+      AND message_type='llm_query'
+
+    ORDER BY time_stamp DESC
+
+    LIMIT 100;
+
+END$$
+DELIMITER ;
+
+-- 5 e) sp_get_request_logs
+DROP PROCEDURE IF EXISTS sp_get_request_logs;
+DELIMITER $$
+
+CREATE PROCEDURE sp_get_request_logs(
+    IN p_user_id INT,
+    IN p_limit INT
+)
+BEGIN
+
+    IF p_user_id IS NULL THEN
+
+        IF p_limit IS NULL THEN
+
+            SELECT *
+            FROM request_log
+            ORDER BY timestamp DESC;
+
+        ELSE
+
+            SELECT *
+            FROM request_log
+            ORDER BY timestamp DESC
+            LIMIT p_limit;
+
+        END IF;
+
+    ELSE
+
+        IF p_limit IS NULL THEN
+
+            SELECT *
+            FROM request_log
+            WHERE user_id=p_user_id
+            ORDER BY timestamp DESC;
+
+        ELSE
+
+            SELECT *
+            FROM request_log
+            WHERE user_id=p_user_id
+            ORDER BY timestamp DESC
+            LIMIT p_limit;
+
+        END IF;
+
+    END IF;
+
+END$$
+DELIMITER ;
+

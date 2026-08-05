@@ -1,0 +1,33 @@
+resources:
+  jobs:
+    rate_limit_ingestion_job:
+      name: rate_limit_ingestion_job
+      tasks:
+        - task_key: ingest_dims_jdbc
+          notebook_task:
+            notebook_path: ../src/jobs/ingest_dims_jdbc.py
+
+        - task_key: ingest_events_autoloader
+          notebook_task:
+            notebook_path: ../src/jobs/ingest_events_autoloader.py
+
+        - task_key: ingest_kafka_cdc
+          notebook_task:
+            notebook_path: ../src/jobs/ingest_kafka_cdc.py
+
+        - task_key: run_ldp_pipeline
+          depends_on:
+            - task_key: ingest_dims_jdbc
+            - task_key: ingest_events_autoloader
+            - task_key: ingest_kafka_cdc
+          pipeline_task:
+            pipeline_id: ${resources.pipelines.ldp_rate_limit.id}
+
+      schedule:
+        quartz_cron_expression: "0 0/15 * * * ?"
+        timezone_id: "UTC"
+        pause_status: PAUSED
+
+      email_notifications:
+        on_failure:
+          - vasangr27@gmail.com

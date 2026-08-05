@@ -2,7 +2,6 @@ import os
 import random
 import uuid
 import json
-
 from datetime import datetime
 from typing import Optional, List, Dict, Any
 from fastapi import FastAPI, HTTPException
@@ -149,14 +148,9 @@ def log_request_to_db(
     db = get_db()
     try:
         cur = db.cursor()
-        cur.execute(
-            """
-            INSERT INTO request_log (
-                request_id, user_id, http_method, endpoint,
-                request_params, response_status_code, response_message,
-                backend_trace, execution_time_ms, client_ip
-            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-            """,
+        # JSON params are passed as text — MySQL parses them into the JSON columns.
+        cur.callproc(
+            "sp_log_request",
             (
                 request_id,
                 user_id,
@@ -195,15 +189,9 @@ def save_to_query_log(
     db = get_db()
     try:
         cur = db.cursor()
-        cur.execute(
-            """
-            INSERT INTO query_log (
-                user_id, plan_id, query_status, tokens_used,
-                conversation_id, user_message, llm_response, message_type,
-                allow_budget_override, validation_result, execution_time_ms,
-                is_successful, time_stamp
-            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
-            """,
+        # time_stamp is omitted — the column defaults to CURRENT_TIMESTAMP.
+        cur.callproc(
+            "sp_log_query_v2",
             (
                 user_id,
                 plan_id,
@@ -590,23 +578,8 @@ def get_chat_history(user_id: int):
     db = get_db()
     try:
         cur = db.cursor(dictionary=True)
-        cur.execute("""
-            SELECT 
-                q_id,
-                conversation_id,
-                user_message,
-                llm_response,
-                tokens_used,
-                validation_result,
-                time_stamp,
-                query_status
-            FROM query_log
-            WHERE user_id = %s 
-            AND message_type = 'llm_query'
-            ORDER BY time_stamp DESC
-            LIMIT 100
-        """, (user_id,))
-        return cur.fetchall()
+        cur.callproc("sp_get_chat_history", (user_id,))
+        return get_rows(cur)
     finally:
         db.close()
 
@@ -616,24 +589,17 @@ def get_request_logs(limit: Optional[int] = None, user_id: Optional[int] = None)
     db = get_db()
     try:
         cur = db.cursor(dictionary=True)
-        sql = "SELECT * FROM request_log"
-        params = []
-        if user_id:
-            sql += " WHERE user_id = %s"
-            params.append(user_id)
-        sql += " ORDER BY timestamp DESC"
-        if limit:                       # only add LIMIT when a value is given
-            sql += " LIMIT %s"
-            params.append(limit)
-        cur.execute(sql, params)
-        return cur.fetchall()
+        # NULL user_id = all users, NULL limit = all rows. The `or None` keeps the
+        # old falsy-check behaviour (0 was treated the same as "not supplied").
+        cur.callproc("sp_get_request_logs", (user_id or None, limit or None))
+        return get_rows(cur)
     finally:
         db.close()
 
 
 # ---------------------------------------------------------------------------
 # Generic procedure runner (Tab 2: "Procedure Executor")
-# Whitelisted so only our 22 known procedures can be called.
+# Whitelisted so only our known procedures can be called.
 # ---------------------------------------------------------------------------
 
 ALLOWED_PROCS = {
@@ -647,6 +613,8 @@ ALLOWED_PROCS = {
     "sp_refresh_usage", "sp_get_current_usage", "sp_get_all_usage",
     # Validation & logging
     "sp_validate_request", "sp_record_usage", "sp_log_query", "sp_get_query_history",
+    # Backend tracing / chat logging (v2)
+    "sp_log_request", "sp_log_query_v2", "sp_get_chat_history", "sp_get_request_logs",
 }
 
 

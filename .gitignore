@@ -1,7 +1,7 @@
 # Secrets — never commit real credentials
 .env
 backend/.env
-
+api-key-*.txt
 # Python
 __pycache__/
 *.pyc
@@ -11,6 +11,8 @@ venv/
 
 # Logs
 *.log
+docs/
+
 
 # MySQL Workbench backups
 *.mwb.bak
@@ -19,3 +21,8 @@ venv/
 .DS_Store
 .vscode/
 .idea/
+
+# Databricks local state
+.export_state.json
+.databricks/
+
